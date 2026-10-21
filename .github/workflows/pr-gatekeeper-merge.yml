@@ -1,7 +1,9 @@
 name: pr-gatekeeper merge
+run-name: "pr-gatekeeper merge: ${{ inputs.repo || github.repository }}#${{ inputs.pr }}"
 on:
   workflow_dispatch:
     inputs:
+      repo:          { description: "대상 저장소 (OWNER/REPO, 비우면 이 저장소)", required: false, type: string, default: "" }
       pr:            { description: "PR 번호", required: true, type: string }
       method:        { description: "병합 방식", required: true, type: choice, options: [squash, merge, rebase], default: squash }
       delete_branch: { description: "병합 후 head 브랜치 삭제", required: false, type: boolean, default: true }
@@ -14,22 +16,38 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve target repository
+        id: target
+        env:
+          REPO: ${{ inputs.repo || github.repository }}
+        run: |
+          if [[ ! "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid repo: $REPO (expected OWNER/REPO)" >&2
+            exit 1
+          fi
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "owner=${REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/create-github-app-token@v2
         id: app
         with:
           app-id: 5405998
           private-key: ${{ secrets.PR_GATEKEEPER_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
 
       - name: Merge pull request
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ steps.target.outputs.repo }}
           PR: ${{ inputs.pr }}
           METHOD: ${{ inputs.method }}
           DELETE_BRANCH: ${{ inputs.delete_branch }}
           AUTO: ${{ inputs.auto }}
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" "--$METHOD")
+          args=(--repo "$REPO" "--$METHOD")
           if [ "$DELETE_BRANCH" = "true" ]; then args+=(--delete-branch); fi
           if [ "$AUTO" = "true" ]; then args+=(--auto); fi
           gh pr merge "$PR" "${args[@]}"
-          echo "Merged: #$PR ($METHOD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Merged: $REPO#$PR ($METHOD)" >> "$GITHUB_STEP_SUMMARY"

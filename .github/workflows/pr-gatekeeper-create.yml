@@ -1,7 +1,9 @@
 name: pr-gatekeeper create
+run-name: "pr-gatekeeper create: ${{ inputs.repo || github.repository }} ${{ inputs.head }} -> ${{ inputs.base }}"
 on:
   workflow_dispatch:
     inputs:
+      repo:   { description: "대상 저장소 (OWNER/REPO, 비우면 이 저장소)", required: false, type: string, default: "" }
       title:  { description: "PR 제목", required: true, type: string }
       body:   { description: "PR 본문", required: false, type: string, default: "" }
       labels: { description: "쉼표로 구분한 라벨", required: false, type: string, default: "" }
@@ -16,15 +18,31 @@ jobs:
   create:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve target repository
+        id: target
+        env:
+          REPO: ${{ inputs.repo || github.repository }}
+        run: |
+          if [[ ! "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "Invalid repo: $REPO (expected OWNER/REPO)" >&2
+            exit 1
+          fi
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          echo "owner=${REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/create-github-app-token@v2
         id: app
         with:
           app-id: 5405998
           private-key: ${{ secrets.PR_GATEKEEPER_PRIVATE_KEY }}
+          owner: ${{ steps.target.outputs.owner }}
+          repositories: ${{ steps.target.outputs.name }}
 
       - name: Create pull request
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPO: ${{ steps.target.outputs.repo }}
           TITLE: ${{ inputs.title }}
           BODY: ${{ inputs.body }}
           LABELS: ${{ inputs.labels }}
@@ -32,7 +50,7 @@ jobs:
           HEAD: ${{ inputs.head }}
           DRAFT: ${{ inputs.draft }}
         run: |
-          args=(--repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$HEAD" --title "$TITLE" --body "$BODY")
+          args=(--repo "$REPO" --base "$BASE" --head "$HEAD" --title "$TITLE" --body "$BODY")
           if [ -n "$LABELS" ]; then args+=(--label "$LABELS"); fi
           if [ "$DRAFT" = "true" ]; then args+=(--draft); fi
           url=$(gh pr create "${args[@]}")

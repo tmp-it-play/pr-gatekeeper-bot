@@ -1,0 +1,35 @@
+name: pr-gatekeeper merge
+on:
+  workflow_dispatch:
+    inputs:
+      pr:            { description: "PR 번호", required: true, type: string }
+      method:        { description: "병합 방식", required: true, type: choice, options: [squash, merge, rebase], default: squash }
+      delete_branch: { description: "병합 후 head 브랜치 삭제", required: false, type: boolean, default: true }
+      auto:          { description: "필수 체크 통과 후 자동 병합", required: false, type: boolean, default: false }
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: 5405998
+          private-key: ${{ secrets.PR_GATEKEEPER_PRIVATE_KEY }}
+
+      - name: Merge pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ inputs.pr }}
+          METHOD: ${{ inputs.method }}
+          DELETE_BRANCH: ${{ inputs.delete_branch }}
+          AUTO: ${{ inputs.auto }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" "--$METHOD")
+          if [ "$DELETE_BRANCH" = "true" ]; then args+=(--delete-branch); fi
+          if [ "$AUTO" = "true" ]; then args+=(--auto); fi
+          gh pr merge "$PR" "${args[@]}"
+          echo "Merged: #$PR ($METHOD)" >> "$GITHUB_STEP_SUMMARY"

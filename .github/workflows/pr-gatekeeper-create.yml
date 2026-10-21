@@ -1,0 +1,39 @@
+name: pr-gatekeeper create
+on:
+  workflow_dispatch:
+    inputs:
+      title:  { description: "PR 제목", required: true, type: string }
+      body:   { description: "PR 본문", required: false, type: string, default: "" }
+      labels: { description: "쉼표로 구분한 라벨", required: false, type: string, default: "" }
+      base:   { description: "병합 대상 브랜치", required: true, type: string, default: main }
+      head:   { description: "소스 브랜치", required: true, type: string }
+      draft:  { description: "Draft PR 여부", required: false, type: boolean, default: false }
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: 5405998
+          private-key: ${{ secrets.PR_GATEKEEPER_PRIVATE_KEY }}
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          LABELS: ${{ inputs.labels }}
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --base "$BASE" --head "$HEAD" --title "$TITLE" --body "$BODY")
+          if [ -n "$LABELS" ]; then args+=(--label "$LABELS"); fi
+          if [ "$DRAFT" = "true" ]; then args+=(--draft); fi
+          url=$(gh pr create "${args[@]}")
+          echo "Created: $url" >> "$GITHUB_STEP_SUMMARY"
